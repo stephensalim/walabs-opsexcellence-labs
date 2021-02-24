@@ -52,6 +52,9 @@ Resources:
           Value: !Join [ "-", [ !Ref AWS::StackName, "ExternalALB"]]
         - Key: ResourceType
           Value: "ReInvent2020-SecurityTheWellArchitectedWay-Lab1"
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 5   
 
   Lab1ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -67,7 +70,7 @@ Resources:
       UnhealthyThresholdCount: 5
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
-          Value: 60
+          Value: 0
       VpcId:
         Fn::ImportValue:
           !Sub "${BaselineVpcStack}-VpcId"
@@ -344,3 +347,139 @@ Resources:
                   - ":root"
             Action: "kms:*"
             Resource: "*"
+            
+  #----------------------------------------------------------------------------------------
+  # Canary
+  #----------------------------------------------------------------------------------------
+  CloudWatchSyntheticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: CloudWatch Synthetics lambda execution role for running canaries
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition: {}
+
+  RolePermissions:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - Ref: CloudWatchSyntheticsRole
+      PolicyName: CloudWatchSyntheticsPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetBucketLocation
+            Resource:
+              - Fn::Sub: arn:aws:s3:::${ResultsBucket}/*
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:CreateLogGroup
+            Resource:
+              - '*'
+          - Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+            Resource: '*'
+          - Effect: Allow
+            Resource: '*'
+            Action: cloudwatch:PutMetricData
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: CloudWatchSynthetics
+
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  SyntheticsCanary:
+    Type: 'AWS::Synthetics::Canary'
+    Properties:
+        Name: lab1canary
+        ExecutionRoleArn: !GetAtt CloudWatchSyntheticsRole.Arn
+        Code: 
+            Handler: apiCanaryBlueprint.handler
+            Script:  
+              !Sub 
+                - |
+                    var synthetics = require('Synthetics');
+                    const log = require('SyntheticsLogger');
+                    apiCanaryBlueprint = async function (ms) {
+                    
+                            // Handle validation for positive scenario
+                            const validateSuccessfull = async function(res) {
+                                return new Promise((resolve, reject) => {
+                                    if (res.statusCode < 200 || res.statusCode > 299) {
+                                        throw res.statusCode + ' ' + res.statusMessage;
+                                    }
+                             
+                                    let responseBody = '';
+                                    res.on('data', (d) => {
+                                        responseBody += d;
+                                    });
+                             
+                                    res.on('end', () => {
+                                        // Add validation on 'responseBody' here if required.
+                                        resolve();
+                                    });
+                                });
+                            };
+                            
+
+                            let requestOptionsStep1 = {
+                                hostname: '${ALBDNS}',
+                                method: 'POST',
+                                path: '/encrypt',
+                                port: '80',
+                                protocol: 'http:',
+                                body: "{\"Name\":\"Test User\",\"Text\":\"This Message is a Test!\"}",
+                                headers: {"Content-Type":"application/json"}
+                            };
+                            requestOptionsStep1['headers']['User-Agent'] = [synthetics.getCanaryUserAgentString(), requestOptionsStep1['headers']['User-Agent']].join(' ');
+    
+                           let stepConfig1 = {
+                                includeRequestHeaders: true,
+                                includeResponseHeaders: true,
+                                includeRequestBody: true,
+                                includeResponseBody: true,
+                                restrictedHeaders: [],
+                                continueOnHttpStepFailure: true
+                            };
+                        
+                            await synthetics.executeHttpStep('Verify', requestOptionsStep1, validateSuccessfull, stepConfig1);
+                    
+                        
+                    };
+                    exports.handler = async () => {
+                        return await apiCanaryBlueprint();
+                    };
+                - ALBDNS: !GetAtt Lab1ALB.DNSName
+        ArtifactS3Location:
+          Fn::Join:
+            - ''
+            - - s3://
+              - Ref: ResultsBucket
+        RuntimeVersion: syn-nodejs-puppeteer-3.0
+        Schedule: 
+          Expression: 'rate(1 minute)'
+          DurationInSeconds: 3600
+        RunConfig: 
+          TimeoutInSeconds: 60
+        FailureRetentionPeriod: 30
+        SuccessRetentionPeriod: 30
+        StartCanaryAfterCreation: true
+        
+        
