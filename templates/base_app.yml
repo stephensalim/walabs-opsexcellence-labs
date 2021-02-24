@@ -197,6 +197,8 @@ Resources:
             Value: !Ref Lab1KMSKey
           - NAME: DBSecret
             Value: !Ref Lab1RDSSecret
+          - NAME: REGION
+            Value: !Ref AWS::Region            
         PortMappings:
         - ContainerPort: 80
 
@@ -250,7 +252,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: 'secretsmanager:GetSecretValue'
-                Resource: !Ref Lab1RDSSecret                
+                Resource: '*'            
         - PolicyName: CloudWatchLogs
           PolicyDocument:
             Version: 2012-10-17

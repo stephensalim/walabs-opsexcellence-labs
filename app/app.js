@@ -1,7 +1,7 @@
 'use strict';
 const AWS = require('aws-sdk');
-const kmsClient = new AWS.KMS({region:'ap-southeast-2'});
-const secretsmanager = new AWS.SecretsManager({region:'ap-southeast-2'});
+const kmsClient = new AWS.KMS({region: process.env.REGION });
+const secretsmanager = new AWS.SecretsManager({region: process.env.REGION });
 const express = require('express');
 const router = express.Router();
 const bodyParser = require("body-parser");

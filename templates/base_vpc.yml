@@ -52,7 +52,7 @@ Resources:
     Type: 'AWS::EC2::Subnet'
     Properties:
       VpcId: !Ref Pattern1VPC
-      AvailabilityZone: ap-southeast-2a
+      AvailabilityZone: !Sub ${AWS::Region}a
       CidrBlock: 172.31.1.0/24
       MapPublicIpOnLaunch: true
       Tags:
@@ -65,7 +65,7 @@ Resources:
     Type: 'AWS::EC2::Subnet'
     Properties:
       VpcId: !Ref Pattern1VPC
-      AvailabilityZone: ap-southeast-2b
+      AvailabilityZone: !Sub ${AWS::Region}b
       CidrBlock: 172.31.3.0/24
       MapPublicIpOnLaunch: true
       Tags:
@@ -78,7 +78,7 @@ Resources:
     Type: 'AWS::EC2::Subnet'
     Properties:
       VpcId: !Ref Pattern1VPC
-      AvailabilityZone: ap-southeast-2a
+      AvailabilityZone: !Sub ${AWS::Region}a
       CidrBlock: 172.31.2.0/24
       MapPublicIpOnLaunch: false
       Tags:
@@ -91,7 +91,7 @@ Resources:
     Type: 'AWS::EC2::Subnet'
     Properties:
       VpcId: !Ref Pattern1VPC
-      AvailabilityZone: ap-southeast-2b
+      AvailabilityZone: !Sub ${AWS::Region}b
       CidrBlock: 172.31.4.0/24
       MapPublicIpOnLaunch: false
       Tags:
