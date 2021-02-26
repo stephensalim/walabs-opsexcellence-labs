@@ -50,8 +50,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join [ "-", [ !Ref AWS::StackName, "ExternalALB"]]
-        - Key: ResourceType
-          Value: "ReInvent2020-SecurityTheWellArchitectedWay-Lab1"
+        - Key: Application
+          Value: "OpsExcellence-Lab"
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
           Value: 5   
@@ -79,8 +79,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join [ "-", [ !Ref AWS::StackName, "ExternalALBTargetGroup"]]
-        - Key: ResourceType
-          Value: "ReInvent2020-SecurityTheWellArchitectedWay-Lab1"
+        - Key: Application
+          Value: "OpsExcellence-Lab"
 
   Lab1ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -110,8 +110,8 @@ Resources:
       Tags:
       - Key: Name
         Value: !Join [ "-", [ !Ref AWS::StackName, "ExternalELBSecurityGroup"]]
-      - Key: ResourceType
-        Value: "ReInvent2020-SecurityTheWellArchitectedWay-Lab1"
+      - Key: Application
+        Value: "OpsExcellence-Lab"
 
 #----------------------------------------------------------------------------------------
 # Build ECS Resources.
@@ -151,7 +151,7 @@ Resources:
       DesiredCount: 1
       HealthCheckGracePeriodSeconds: 60
       LoadBalancers:
-        - ContainerName: simple-app
+        - ContainerName: mysecretword-app
           ContainerPort: 80
           TargetGroupArn: !Ref Lab1ALBTargetGroup
       TaskDefinition: !Ref Lab1TaskDefinition
@@ -181,7 +181,20 @@ Resources:
       Cpu: 256
       Memory: 0.5GB
       ContainerDefinitions:
-      - Name: simple-app
+      - Name: xray-daemon
+        Image: amazon/aws-xray-daemon
+        Cpu: 32
+        Memory: 256
+        PortMappings:
+        - ContainerPort: 2000
+          Protocol: 'udp'
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref 'Lab1ECSXrayLogsGroup'
+            awslogs-region: !Ref 'AWS::Region'
+            awslogs-stream-prefix: !Join ['', [!Ref 'AWS::StackName', -Lab1-xraydaemon]]          
+      - Name: mysecretword-app
         Essential: 'true'
         Image: !Ref ECRImageURI 
         LogConfiguration:
@@ -198,7 +211,7 @@ Resources:
           - NAME: DBSecret
             Value: !Ref Lab1RDSSecret
           - NAME: REGION
-            Value: !Ref AWS::Region            
+            Value: !Ref AWS::Region
         PortMappings:
         - ContainerPort: 80
 
@@ -206,7 +219,13 @@ Resources:
   Lab1ECSCloudWatchLogsGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Ref AWS::StackName
+      LogGroupName: !Join ['', [!Ref 'AWS::StackName', -Lab1-app-loggroup]]
+      RetentionInDays: 365
+
+  Lab1ECSXrayLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [!Ref 'AWS::StackName', -Lab1-xray-loggroup]]
       RetentionInDays: 365
 
   #----------------------------------------------------------------------------------------
@@ -260,6 +279,13 @@ Resources:
               - Effect: Allow
                 Action: 'logs:*'
                 Resource: !GetAtt Lab1ECSCloudWatchLogsGroup.Arn        
+        - PolicyName: Xray
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'xray:*'
+                Resource: '*'                    
         ### This needs to be restricted 
 
   Lab1ECSTaskExecutionRole:
@@ -290,7 +316,7 @@ Resources:
       DBSubnetGroupName: !Ref Lab1RDSSubnetGroup
       VPCSecurityGroups: 
         - !Ref Lab1RDSSecGroup
-      MultiAZ: True
+      MultiAZ: False
 
 
   Lab1RDSSecGroup:
@@ -410,13 +436,12 @@ Resources:
   SyntheticsCanary:
     Type: 'AWS::Synthetics::Canary'
     Properties:
-        Name: lab1canary
+        Name: mysecretword-canary
         ExecutionRoleArn: !GetAtt CloudWatchSyntheticsRole.Arn
         Code: 
             Handler: apiCanaryBlueprint.handler
             Script:  
-              !Sub 
-                - |
+                  |
                     var synthetics = require('Synthetics');
                     const log = require('SyntheticsLogger');
                     apiCanaryBlueprint = async function (ms) {
@@ -442,7 +467,7 @@ Resources:
                             
 
                             let requestOptionsStep1 = {
-                                hostname: '${ALBDNS}',
+                                hostname: process.env.CANARY_ENDPOINT,
                                 method: 'POST',
                                 path: '/encrypt',
                                 port: '80',
@@ -468,7 +493,6 @@ Resources:
                     exports.handler = async () => {
                         return await apiCanaryBlueprint();
                     };
-                - ALBDNS: !GetAtt Lab1ALB.DNSName
         ArtifactS3Location:
           Fn::Join:
             - ''
@@ -480,8 +504,31 @@ Resources:
           DurationInSeconds: 3600
         RunConfig: 
           TimeoutInSeconds: 60
+          EnvironmentVariables: { "CANARY_ENDPOINT" : !GetAtt Lab1ALB.DNSName }
         FailureRetentionPeriod: 30
         SuccessRetentionPeriod: 30
         StartCanaryAfterCreation: true
+        Tags:
+          - Key: Name
+            Value: !Join [ "-", [ !Ref AWS::StackName, "Canary"]]
+          - Key: Application
+            Value: "OpsExcellence-Lab"
+          - Key: TargetEndpoint
+            Value: !GetAtt Lab1ALB.DNSName                
         
-        
+  SyntheticsCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Canary Alarm for My Secret Word
+      AlarmName: mysecretword-canary-alarm
+      ComparisonOperator: LessThanThreshold
+      EvaluationPeriods: 1
+      Dimensions:
+        - Name: CanaryName
+          Value: mysecretword-canary
+      Namespace: "CloudWatchSynthetics"
+      MetricName: "SuccessPercent"
+      Period: 10
+      Statistic: Average
+      Threshold: 99.0
+      TreatMissingData: breaching

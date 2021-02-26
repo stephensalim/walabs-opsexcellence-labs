@@ -1,12 +1,14 @@
 'use strict';
 const AWS = require('aws-sdk');
-const kmsClient = new AWS.KMS({region: process.env.REGION });
-const secretsmanager = new AWS.SecretsManager({region: process.env.REGION });
+const AWSXRay = require('aws-xray-sdk');
+const kmsClient = AWSXRay.captureAWSClient(new AWS.KMS({region: process.env.REGION }));
+const secretsmanager = AWSXRay.captureAWSClient(new AWS.SecretsManager({region: process.env.REGION }));
 const express = require('express');
 const router = express.Router();
 const bodyParser = require("body-parser");
-var mysql = require('mysql');
+var mysql = AWSXRay.captureMySQL(require('mysql'));
 const zlib = require('zlib');
+
 
 // Constants
 const PORT = 80;
@@ -14,9 +16,12 @@ const HOST = '0.0.0.0';
 
 // App
 const app = express();
+app.use(AWSXRay.express.openSegment('mysecretapp-api'));
+
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+
 
 const DBHOST = process.env.DBHOST;
 const KeyId  = process.env.KeyId;
@@ -188,7 +193,6 @@ router.get('/', (req, res) => {
       res.status(200).send( 'OK' );
 });
 
-
 router.post('/encrypt', (req, res) => {
   const Payload = {
     'Name': req.body.Name,
@@ -284,12 +288,11 @@ router.get('/decrypt', (req, res) => {
       console.log(err);
       res.status(400).send( {'Message':'Failed Hydrating Credentials' });
   })
-
-
 });
 
-
 app.use("/",router);
+app.use(AWSXRay.express.closeSegment());
+
 
 app.listen(PORT, HOST);
 console.log(`Running on http://${HOST}:${PORT}`);
