@@ -22,7 +22,7 @@ Resources:
           description: Locate Application Resources Based on Alarm Tag
           outputs:
             - Name: Resources
-              Selector: $.Payload.resources
+              Selector: $.Payload.ApplicationStackResources
               Type: String
           inputs:
             Runtime: python3.6
@@ -152,3 +152,166 @@ Resources:
                   result['ApplicationStackResources'] = json.dumps(resources) 
                   
                   return result
+        - name: InvestigateELB
+          action: aws:executeScript
+          description: InvestigateELB
+          inputs:
+            Runtime: python3.6
+            Handler: handler
+            InputPayload:
+              Resourceslist: '{{LocateResourcesRelated.Resources}}'
+            Script: |-
+              import json
+              import re
+              from datetime import datetime,timedelta
+              import boto3
+              import os
+              
+              def arn_deconstruct(arn):
+                arnlist = arn.split(":")
+                
+                service=arnlist[2]
+                region=arnlist[3]
+                accountid=arnlist[4]
+                resources = arnlist[5].split("/")
+                servicetype = resources[0]
+                servicemode = resources[1]
+                resourcename = resources[2]
+                resourceid = resources[3]
+                
+                return {
+                  "Service": service,
+                  "Region": region,
+                  "AccountId": accountid,
+                  "Type": servicetype,
+                  "Mode" : servicemode,
+                  "Name" : resourcename,
+                  "Id" : resourceid
+                }
+              
+              
+              def get_related_metrics(elb):
+                cwclient = boto3.client('cloudwatch', region_name = elb['Region'] )
+                if elb['Mode'] == 'app':
+                  response = cwclient.list_metrics(
+                    Namespace='AWS/ApplicationELB',
+                    Dimensions=[
+                        {
+                            'Name':'LoadBalancer',
+                            'Value': '{}/{}/{}'.format(elb['Mode'],elb['Name'],elb['Id'])
+                        }
+                    ]
+                  )
+                return(response['Metrics']) 
+                
+                
+              def get_stat(elb,metricname,stat):
+                cwclient = boto3.client('cloudwatch', region_name = elb['Region'] )
+                
+                if elb['Mode'] == 'app':
+                  response = cwclient.get_metric_statistics(
+                    Namespace='AWS/ApplicationELB',
+                    MetricName=metricname,
+                    StartTime=datetime.now() - timedelta(minutes=15),
+                    EndTime=datetime.now(),
+                    Period=60,      
+                    Dimensions=[
+                        {
+                            'Name':'LoadBalancer',
+                            'Value': '{}/{}/{}'.format(elb['Mode'],elb['Name'],elb['Id'])
+                        }
+                    ],
+                    Statistics=[stat]
+                  )
+                  
+                x = []  
+                result = {} 
+                if len(response['Datapoints']) > 0:
+                  for i in response['Datapoints']:
+                    x.append(i[stat])
+                    result['OverallValue'] = cal_average(x)
+                else:
+                  result['OverallValue'] = None
+                result['Datapoints'] = response['Datapoints']
+                return(result)
+              
+              
+              def find_elb_resource(res):
+                result = None
+                r = json.loads(res['Resourceslist'])
+                for i in r:
+                  if i['Type'] == 'AWS::ElasticLoadBalancingV2::Listener':
+                    result = i['Arn']
+                return result
+              
+              def cal_average(num):
+                  sum_num = 0
+                  for t in num:
+                      sum_num = sum_num + t           
+              
+                  avg = sum_num / len(num)
+                  return avg
+              
+              def myconverter(o):
+                  if isinstance(o, datetime):
+                      return o.__str__()
+                
+              def handler(event, context):
+                
+                arn = find_elb_resource(event)
+                result = {}  
+                
+                if arn is not None:
+                  elb = arn_deconstruct(arn)
+              
+                  metricslist = get_related_metrics(elb)
+                  target_response_time = get_stat(elb,'TargetResponseTime','Average')
+                  result['TargetResponseTime'] = target_response_time
+                  
+                  target_2xx_count = get_stat(elb,'HTTPCode_Target_2XX_Count','Sum')
+                  result['Target2XXCount'] = target_2xx_count
+                  
+                  target_3xx_count = get_stat(elb,'HTTPCode_Target_3XX_Count','Sum')
+                  result['Target3XXCount'] = target_3xx_count
+                  
+                  target_4xx_count = get_stat(elb,'HTTPCode_Target_4XX_Count','Sum')
+                  result['Target4XXCount'] = target_4xx_count
+                  
+                  target_5xx_count = get_stat(elb,'HTTPCode_Target_5XX_Count','Sum')
+                  result['Target5XXCount'] = target_5xx_count
+                  
+                  target_conn_error = get_stat(elb,'TargetConnectionErrorCount','Sum')
+                  result['TargetConnectionErrorCount'] = target_conn_error
+                  
+                  target_unhealthyhost = get_stat(elb,'UnHealthyHostCount','Average')
+                  result['UnHealthyHostCount'] = target_unhealthyhost
+                  
+                  elb_active_conn = get_stat(elb,'ActiveConnectionCount','Sum')
+                  result['ActiveConnectionCount'] = elb_active_conn  
+                  
+                  elb_3xx_count = get_stat(elb,'HTTPCode_ELB_3XX_Count','Sum')
+                  result['ELB3XXCount'] = target_3xx_count
+                  
+                  elb_4xx_count = get_stat(elb,'HTTPCode_ELB_4XX_Count','Sum')
+                  result['ELB4XXCount'] = elb_4xx_count
+                  
+                  elb_5xx_count = get_stat(elb,'HTTPCode_ELB_5XX_Count','Sum')
+                  result['ELB5XXCount'] = elb_5xx_count
+                  
+                  elb_500_count = get_stat(elb,'HTTPCode_ELB_500_Count','Sum')
+                  result['ELB500Count'] = elb_500_count
+                  
+                  elb_502_count = get_stat(elb,'HTTPCode_ELB_502_Count','Sum')
+                  result['ELB502Count'] = elb_502_count
+                  
+                  elb_503_count = get_stat(elb,'HTTPCode_ELB_503_Count','Sum')
+                  result['ELB503Count'] = elb_503_count  
+                  
+                  elb_504_count = get_stat(elb,'HTTPCode_ELB_504_Count','Sum')
+                  result['ELB504Count'] = elb_504_count  
+                    
+                  
+                  serialized_result = json.dumps(result, default = myconverter )
+                  result = json.loads(serialized_result)
+              
+                return result
