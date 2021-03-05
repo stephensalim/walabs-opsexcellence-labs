@@ -109,27 +109,33 @@ function decryptData( KeyId, CiphertextBlob ){
 function createDB(DBSecret){
   
   var promise = new Promise(function(resolve,reject){
-    var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS});
-    var sql = "CREATE DATABASE IF NOT EXISTS mydb";
-    con.query(sql, function (err, result) {
-      if (err) {
-        con.end();
-        reject(err);
+  try
+    {
+        var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS});
+        var sql = "CREATE DATABASE IF NOT EXISTS mydb";
+        con.query(sql, function (err, result) {
+          if (err) {
+            con.end();
+            reject(err);
+          }
+          else{
+            con.end();
+            resolve("database create done");
+          }
+        });
       }
-      else{
-        con.end();
-        resolve("database create done");
-      }
-    });
+    catch(err){
+      reject(err);
+    }
   });
-
-
   return promise;
 };
 
 function createTable(){
-  var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
   var promise = new Promise(function(resolve,reject){
+  try
+    {
+    var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
     var sql = "CREATE TABLE IF NOT EXISTS peoplesecret (name VARCHAR(244) NOT NULL, secret TEXT, PRIMARY KEY (name) )";
     con.query(sql, function (err, result) {
       if (err) {
@@ -141,13 +147,19 @@ function createTable(){
         resolve("table create done");
       }
     });
+    }
+    catch(err){
+      reject(err);
+    }
   });
   return promise;
 };
 
 function storeSecret(Payload){
-  var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
+  
   var promise = new Promise(function(resolve,reject){
+    try{
+    var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
     var sql = "INSERT INTO peoplesecret (name, secret) VALUES ('" + Payload['Name'] + "', '" + Payload['Text'] + "' ) ON DUPLICATE KEY UPDATE name= '"+ Payload['Name']  +"', secret='" +  Payload['Text'] + "'" ;
     con.query(sql, function (err, result) {
       if (err) {
@@ -159,30 +171,40 @@ function storeSecret(Payload){
         resolve("1 record inserted");
       }
     });
+    }
+    catch(err){
+      reject(err);
+    }
   });
   return promise;
 };
 
 function getSecret(Payload){
-  var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
+  
   var promise = new Promise(function(resolve,reject){
-    var sql = "SELECT secret from peoplesecret WHERE name='"+ Payload['Name'] +"'";
-    con.query(sql, function (err, result) {
-      if (err) {
-        con.end();
-        reject(err);
-      }
-      else{
-        if(result.length < 1){
+    try{
+      var con = mysql.createConnection({host: DBHOST,user: process.env.DBUSER ,password: process.env.DBPASS,database: "mydb"});
+      var sql = "SELECT secret from peoplesecret WHERE name='"+ Payload['Name'] +"'";
+      con.query(sql, function (err, result) {
+        if (err) {
           con.end();
-          reject('no record found');
-        } 
-        else{
-          con.end();
-          resolve(result[0].secret);
+          reject(err);
         }
-      }
-    });
+        else{
+          if(result.length < 1){
+            con.end();
+            reject('no record found');
+          } 
+          else{
+            con.end();
+            resolve(result[0].secret);
+          }
+        }
+      });
+    }
+    catch(err){
+      reject(err)
+    }
   });
   return promise;
 };
@@ -214,6 +236,7 @@ router.post('/encrypt', (req, res) => {
       //Prepare Database & Table
       createDB()
       .then(function(res){
+        
           createTable()
           .then(function(res){
             //Insert Record
@@ -224,14 +247,19 @@ router.post('/encrypt', (req, res) => {
             })
             .catch(function(err){
               console.log(err);
+              res.status(500).send( {'Message':'oops something went wrong !' });
             });
           })
           .catch(function(err){
             console.log(err);
+            res.status(500).send( {'Message':'oops something went wrong !' });
           });
+      
       })
       .catch(function(err){
         console.log(err);
+        res.status(500).send( {'Message':'oops something went wrong !' });
+        process.exit(500)
       });
       return Payload;
     })
@@ -245,6 +273,7 @@ router.post('/encrypt', (req, res) => {
     })
     .catch(function(err) {
         console.log(err);
+        
         res.status(400).send( {'Message':'Data encryption failed, check logs for more details' });
     });
     return response

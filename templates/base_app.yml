@@ -181,19 +181,19 @@ Resources:
       Cpu: 256
       Memory: 0.5GB
       ContainerDefinitions:
-      - Name: xray-daemon
-        Image: amazon/aws-xray-daemon
-        Cpu: 32
-        Memory: 256
-        PortMappings:
-        - ContainerPort: 2000
-          Protocol: 'udp'
-        LogConfiguration:
-          LogDriver: awslogs
-          Options:
-            awslogs-group: !Ref 'Lab1ECSXrayLogsGroup'
-            awslogs-region: !Ref 'AWS::Region'
-            awslogs-stream-prefix: !Join ['', [!Ref 'AWS::StackName', -Lab1-xraydaemon]]          
+      # - Name: xray-daemon
+      #   Image: amazon/aws-xray-daemon
+      #   Cpu: 32
+      #   Memory: 256
+      #   PortMappings:
+      #   - ContainerPort: 2000
+      #     Protocol: 'udp'
+      #   LogConfiguration:
+      #     LogDriver: awslogs
+      #     Options:
+      #       awslogs-group: !Ref 'Lab1ECSXrayLogsGroup'
+      #       awslogs-region: !Ref 'AWS::Region'
+      #       awslogs-stream-prefix: !Join ['', [!Ref 'AWS::StackName', -Lab1-xraydaemon]]          
       - Name: mysecretword-app
         Essential: 'true'
         Image: !Ref ECRImageURI 
@@ -309,7 +309,7 @@ Resources:
     Type: AWS::RDS::DBInstance
     Properties:
       AllocatedStorage: 5
-      DBInstanceClass: db.t2.small
+      DBInstanceClass: db.t2.micro
       Engine: MySQL
       MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref Lab1RDSSecret, ':SecretString:username}}' ]]
       MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref Lab1RDSSecret, ':SecretString:password}}' ]]
@@ -529,6 +529,6 @@ Resources:
       Namespace: "CloudWatchSynthetics"
       MetricName: "SuccessPercent"
       Period: 10
-      Statistic: Average
+      Statistic: Maximum
       Threshold: 99.0
       TreatMissingData: breaching
