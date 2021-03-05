@@ -798,11 +798,18 @@ Resources:
                     return o.__str__()
               
               def handler(event, context):
-              
+                result = {}
+                x = []
                 res = find_ecs_resource(event)
                 ecssvc = arn_deconstruct(res['ECSService'])
                 loglist = find_ecs_logs(res['ECSCluster'],ecssvc['Name'],ecssvc['Region'])
-                result['Result'] = json.dumps(find_error_in_logs(loglist))
+                
+                x = find_error_in_logs(loglist)
+                
+                if len(x) > 0:
+                  result['Result'] = json.dumps(x)
+                else:
+                  result['Result'] = "None"
                 
                 return result
         - name: Gather_ECS_Config
@@ -898,18 +905,17 @@ Resources:
                         
                   arn = find_ecsservice_resource(event)
                   ecsres = arn_deconstruct(arn)
-                  result = {}  
+                  result = {}
+                  output = {}
                   
                   if ecsres is not None:
-                    ecssvccfg = get_ecs_service_config(ecsres)
+                    ecssvccfg = json.dumps(get_ecs_service_config(ecsres),default = myconverter )
               
-                  result = ecssvccfg
-                  result['scalingpolicies'] = get_scaling_policy(ecsres)  
-                  serialized_result = json.dumps(result,default = myconverter )
-                  result['Result'] = json.dumps(json.loads(serialized_result))
+                  result = json.loads(ecssvccfg)
+                  result['scalingpolicies'] = json.loads(json.dumps( get_scaling_policy(ecsres),default = myconverter ))
               
-              
-                  return result                
+                  output['Result'] = json.dumps(result,default = myconverter )
+                  return output            
         - name: Inspect_Playbook_Results
           action: aws:executeScript
           description: Inspect Results
@@ -921,7 +927,7 @@ Resources:
               RDSConfig: '{{Gather_RDS_Config.Result}}'
               RDSStatistics: '{{Gather_RDS_Statistics.Result}}'
               ECSStatistics: '{{Gather_ECS_Statistics.Result}}'
-              ECSErrorLogs: '{{Gather_ECS_Error_LogsResult}}'  
+              ECSErrorLogs: '{{Gather_ECS_Error_Logs.Result}}'  
               ECSConfig: '{{Gather_ECS_Config.Result}}' 
             Script: |-
               import json
